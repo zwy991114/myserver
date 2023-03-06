@@ -3,8 +3,10 @@
 #include <list>
 #include <iostream>
 #include <exception>
+#include <memory>
 #include <pthread.h>
 #include "../lock/locker.h"
+
 /* 
     单生产者多消费者模型：
         - 生产者：主线程
@@ -31,7 +33,7 @@ private:
 private:
     int m_thread_number;        // 线程池中的线程数
     int m_max_requests;         // 请求队列中允许的最大请求数
-    pthread_t* m_threads;       // 描述线程池的数组，其大小为m_thread_number
+    std::unique_ptr<pthread_t[]> m_threads;       // 描述线程池的数组，其大小为m_thread_number
     std::list<T*> m_workqueue;  // 请求队列
     locker m_queuelocker;       // 保护请求队列的互斥锁
     sem m_queuestat;            // 是否有任务需要处理
@@ -42,23 +44,22 @@ private:
 template<typename T>
 ThreadPool<T>::ThreadPool(int thread_number, int max_requests) 
     : m_thread_number(thread_number), m_max_requests(max_requests),
-      m_stop(false), m_threads(nullptr) {
+      m_stop(false), m_threads(new pthread_t[thread_number] ) {
     if (thread_number <= 0 || max_requests <= 0) {
         throw std::exception();
     }
-    m_threads = new pthread_t[thread_number];
+   
     if (!m_threads) {
         throw std::exception();
     }
     /* 创建thread_number个子线程，并将它们都设置为脱离线程 */
     for (int i = 0; i < thread_number; ++i) {
         std::cout << "create the " << i << "th thread" << std::endl;
-        if (pthread_create(m_threads + i, NULL, worker, this) != 0) {
-            delete [] m_threads;
+        if (pthread_create(&m_threads[i], NULL, worker, this) != 0) {
+            
             throw std::exception();
         }
         if (pthread_detach(m_threads[i])) {
-            delete [] m_threads;
             throw std::exception();
         }
     }
@@ -66,7 +67,6 @@ ThreadPool<T>::ThreadPool(int thread_number, int max_requests)
 }
 template<typename T>
 ThreadPool<T>::ThreadPool::~ThreadPool() {
-    delete [] m_threads;
     m_stop = true;
 }
 /* 往请求队列中添加任务 */
